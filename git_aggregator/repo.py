@@ -305,6 +305,11 @@ class Repo(object):
         if not exising_url:
             logger.info('Adding remote %s <%s>', name, url)
             self.log_call(['git', 'remote', 'add', name, url], cwd=self.cwd)
+        elif name == 'origin' and exising_url != url:
+            raise GitAggregatorException(
+                'Warning! You are changing the URL for the origin remote, if this is '
+                'intended, please change it before doing git aggregation.\n'
+                '<%s> <-> <%s>' % (exising_url, url))
         else:
             logger.info('Updating remote %s <%s> -> <%s>',
                         name, exising_url, url)

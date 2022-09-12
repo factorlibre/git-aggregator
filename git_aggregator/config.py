@@ -9,6 +9,7 @@ from string import Template
 import kaptan
 from .exception import ConfigException
 from ._compat import string_types
+from .repo import Repo, ishex
 
 
 log = logging.getLogger(__name__)
@@ -49,7 +50,18 @@ def get_repos(config, force=False):
                 raise ConfigException(
                     '%s: You should at least define one remote.' % directory)
         else:
-            raise ConfigException('%s: remotes is not defined.' % directory)
+            try:
+                tmp_repo = Repo(repo_dict['cwd'], [], [], None)
+                remotes = tmp_repo._get_remotes()
+                repo_dict['remotes'] = []
+                for remote_name, url in remotes.items():
+                    repo_dict['remotes'].append({
+                        'name': remote_name,
+                        'url': url
+                    })
+                    remote_names.add(remote_name)
+            except Exception:
+                raise ConfigException('%s: remotes is not defined.' % directory)
         if 'merges' in repo_data:
             merges = []
             merge_data = repo_data.get('merges') or []
@@ -79,6 +91,15 @@ def get_repos(config, force=False):
                     raise ConfigException(
                         '%s: Merge remote %s not defined in remotes.' %
                         (directory, merge["remote"]))
+                tmp_repo = Repo(repo_dict['cwd'], [], [], None)
+                rtype, sha = tmp_repo.query_remote_ref(merge["remote"], merge["ref"])
+                if rtype is None and not ishex(merge["ref"]):
+                    log.warning(
+                        '%s - Ref: %s does not exists in remote %s' % (
+                            directory, merge["ref"], merge["remote"]
+                        )
+                    )
+                    continue
                 merges.append(merge)
             repo_dict['merges'] = merges
             if not merges:
