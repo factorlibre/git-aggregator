@@ -91,15 +91,18 @@ def get_repos(config, force=False):
                     raise ConfigException(
                         '%s: Merge remote %s not defined in remotes.' %
                         (directory, merge["remote"]))
-                tmp_repo = Repo(repo_dict['cwd'], [], [], None)
-                rtype, sha = tmp_repo.query_remote_ref(merge["remote"], merge["ref"])
-                if rtype is None and not ishex(merge["ref"]):
-                    log.warning(
-                        '%s - Ref: %s does not exists in remote %s' % (
-                            directory, merge["ref"], merge["remote"]
+                try:
+                    tmp_repo = Repo(repo_dict['cwd'], [], [], None)
+                    rtype, sha = tmp_repo.query_remote_ref(merge["remote"], merge["ref"])
+                    if rtype is None and not ishex(merge["ref"]):
+                        log.warning(
+                            '%s - Ref: %s does not exists in remote %s' % (
+                                directory, merge["ref"], merge["remote"]
+                            )
                         )
-                    )
-                    continue
+                        continue
+                except Exception as e:
+                    log.warning(e)
                 merges.append(merge)
             repo_dict['merges'] = merges
             if not merges:
