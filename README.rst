@@ -221,11 +221,17 @@ To work around API limitation, you must first generate a
 Changes
 =======
 
-2.x.y (unreleased)
+3.0.1 (2022-09-21)
+------------------
+
+* Fix git clone issue with git < 2.17
+
+3.0.0 (2022-09-20)
 ------------------
 
 * When updating remotes the log message now states ``Updating remote`` instead of ``Remote remote``
-
+* Add ``--no-color`` option to disable colored output
+* Use git clone --filter=blob:none + fetch strategy to improve performance and benefit from ``git-autoshare`` if installed
 
 2.1 (August 26, 2021)
 ---------------------

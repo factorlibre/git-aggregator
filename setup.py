@@ -5,9 +5,9 @@
 import setuptools
 
 setuptools.setup(
-    name='git-aggregator',
+    name='git_aggregator',
     use_scm_version=True,
-    description='A library to aggregate git branches from different remotes '
+    description='A program to aggregate git branches from different remotes '
                 'into a consolidated one',
     long_description=open('README.rst').read(),
     classifiers=[
@@ -21,6 +21,7 @@ setuptools.setup(
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
         "Topic :: Utilities",
         "Topic :: System :: Shells",
     ],
