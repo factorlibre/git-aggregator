@@ -140,6 +140,14 @@ def get_parser():
         help='Disable color in output',
     )
 
+    main_parser.add_argument(
+        '--dry-run',
+        dest='dry_run',
+        default=False,
+        action='store_true',
+        help='Test aggregation in a temp dir'
+    )
+
     sub_parsers = main_parser.add_subparsers(
         title='commands',
         dest='command',
@@ -227,7 +235,7 @@ def aggregate_repo(repo, args, sem, err_queue):
             logger.info("Skip %s", repo.cwd)
             return
         if args.command == 'aggregate':
-            repo.aggregate()
+            repo.aggregate(dry_run=args.dry_run)
             if args.do_push:
                 repo.push()
         elif args.command == 'show-closed-prs':

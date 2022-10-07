@@ -7,6 +7,7 @@ from __future__ import unicode_literals
 import os
 import logging
 import re
+import shutil
 import subprocess
 
 import requests
@@ -165,13 +166,21 @@ class Repo(object):
             ret = console_to_str(ret)
         return ret
 
-    def aggregate(self):
+    def _dry_run_cleanup(self, target_dir):
+        if os.path.exists(target_dir):
+            shutil.rmtree(target_dir)
+
+    def aggregate(self, dry_run=False):
         """ Aggregate all merges into the target branch
         If the target_dir doesn't exist, create an empty git repo otherwise
         clean it, add all remotes , and merge all merges.
         """
         logger.info('Start aggregation of %s', self.cwd)
         target_dir = self.cwd
+        repo_dir = self.cwd
+        if dry_run:
+            target_dir = "%s-%s" % (target_dir, "dry-run")
+            self.cwd = target_dir
 
         is_new = not os.path.exists(target_dir)
         if is_new:
@@ -188,8 +197,17 @@ class Repo(object):
             merges = merges[1:]
             self._reset_to(origin["remote"], origin["ref"])
         for merge in merges:
-            self._merge(merge)
+            try:
+                self._merge(merge)
+            except Exception:
+                logger.error(
+                    "%s> error merging %s-%s", repo_dir, merge["remote"], merge["ref"])
+                if dry_run:
+                    self._dry_run_cleanup(target_dir)
+                raise
         self._execute_shell_command_after()
+        if dry_run:
+            self._dry_run_cleanup(target_dir)
         logger.info('End aggregation of %s', self.cwd)
 
     def init_repository(self, target_dir):
