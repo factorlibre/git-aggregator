@@ -147,7 +147,9 @@ class Repo(object):
                 return 'branch', sha
             elif fullref == 'refs/tags/' + ref:
                 return 'tag', sha
-            elif fullref == ref and ref == 'HEAD':
+            elif fullref == ref and (
+                    ref == 'HEAD'
+                    or fullref.startswith('refs/pull/')):
                 return 'HEAD', sha
         return None, ref
 
