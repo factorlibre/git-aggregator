@@ -15,10 +15,12 @@ from .repo import Repo, ishex
 log = logging.getLogger(__name__)
 
 
-def get_repos(config, force=False):
+def get_repos(config, force=False, skip_merge_check=False):
     """Return a :py:obj:`list` list of repos from config file.
     :param config: the repos config in :py:class:`dict` format.
     :param bool force: Force aggregate dirty repos or not.
+    :param bool skip_merge_check: True to skip the merge check for non existing refs
+    in remotes.
     :type config: dict
     :rtype: list
     """
@@ -91,18 +93,20 @@ def get_repos(config, force=False):
                     raise ConfigException(
                         '%s: Merge remote %s not defined in remotes.' %
                         (directory, merge["remote"]))
-                try:
-                    tmp_repo = Repo(repo_dict['cwd'], [], [], None)
-                    rtype, sha = tmp_repo.query_remote_ref(merge["remote"], merge["ref"])
-                    if rtype is None and not ishex(merge["ref"]):
-                        log.warning(
-                            '%s - Ref: %s does not exists in remote %s' % (
-                                directory, merge["ref"], merge["remote"]
+                if not skip_merge_check:
+                    try:
+                        tmp_repo = Repo(repo_dict['cwd'], [], [], None)
+                        rtype, sha = tmp_repo.query_remote_ref(
+                            merge["remote"], merge["ref"])
+                        if rtype is None and not ishex(merge["ref"]):
+                            log.warning(
+                                '%s - Ref: %s does not exists in remote %s' % (
+                                    directory, merge["ref"], merge["remote"]
+                                )
                             )
-                        )
-                        continue
-                except Exception as e:
-                    log.warning(e)
+                            continue
+                    except Exception as e:
+                        log.warning(e)
                 merges.append(merge)
             repo_dict['merges'] = merges
             if not merges:
@@ -155,7 +159,8 @@ def get_repos(config, force=False):
     return repo_list
 
 
-def load_config(config, expand_env=False, env_file=None, force=False):
+def load_config(
+        config, expand_env=False, env_file=None, force=False, skip_merge_check=False):
     """Return repos from a directory and fnmatch. Not recursive.
 
     :param config: paths to config file
@@ -165,6 +170,8 @@ def load_config(config, expand_env=False, env_file=None, force=False):
     :param env_file: path to file with variables to add to the environment.
     :type env_file: str or None
     :param bool force: True to aggregate even if repo is dirty.
+    :param bool skip_merge_check: True to skip the merge check for non existing refs
+    in remotes.
     :returns: expanded config dict item
     :rtype: iter(dict)
     """
@@ -191,4 +198,5 @@ def load_config(config, expand_env=False, env_file=None, force=False):
             config = config.substitute(environment)
 
     conf.import_config(config)
-    return get_repos(conf.export('dict') or {}, force)
+    return get_repos(
+        conf.export('dict') or {}, force, skip_merge_check=skip_merge_check)
