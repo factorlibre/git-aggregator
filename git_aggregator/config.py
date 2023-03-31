@@ -67,6 +67,13 @@ def get_repos(config, force=False, skip_merge_check=False):
         if 'merges' in repo_data:
             merges = []
             merge_data = repo_data.get('merges') or []
+            tmp_repo = None
+            if not skip_merge_check:
+                tmp_repo = Repo(repo_dict['cwd'], [], [], None)
+                if os.path.exists(tmp_repo.cwd):
+                    # Set remotes
+                    for remote in repo_dict['remotes']:
+                        tmp_repo._set_remote(**remote)
             for merge in merge_data:
                 try:
                     # Assume parts is a str
@@ -93,9 +100,8 @@ def get_repos(config, force=False, skip_merge_check=False):
                     raise ConfigException(
                         '%s: Merge remote %s not defined in remotes.' %
                         (directory, merge["remote"]))
-                if not skip_merge_check:
+                if not skip_merge_check and tmp_repo:
                     try:
-                        tmp_repo = Repo(repo_dict['cwd'], [], [], None)
                         rtype, sha = tmp_repo.query_remote_ref(
                             merge["remote"], merge["ref"])
                         if rtype is None and not ishex(merge["ref"]):
