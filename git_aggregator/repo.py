@@ -39,7 +39,7 @@ class Repo(object):
 
     def __init__(self, cwd, remotes, merges, target,
                  shell_command_after=None, fetch_all=False, defaults=None,
-                 force=False):
+                 force=False, skip_dry_run=False):
         """Initialize a git repository aggregator
 
         :param cwd: path to the directory where to initialize the repository
@@ -70,6 +70,7 @@ class Repo(object):
         self.shell_command_after = shell_command_after or []
         self.defaults = defaults or dict()
         self.force = force
+        self.skip_dry_run = skip_dry_run
 
     @property
     def git_version(self):
@@ -180,6 +181,12 @@ class Repo(object):
         logger.info('Start aggregation of %s', self.cwd)
         target_dir = self.cwd
         repo_dir = self.cwd
+        if dry_run and self.skip_dry_run:
+            logger.info(
+                'Skipping dry-run for %s, as it is configured to be skipped',
+                repo_dir)
+            return
+
         if dry_run:
             target_dir = "%s-%s" % (target_dir, "dry-run")
             self.cwd = target_dir

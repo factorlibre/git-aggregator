@@ -32,6 +32,7 @@ def get_repos(config, force=False, skip_merge_check=False):
             'cwd': directory,
             'defaults': repo_data.get('defaults', dict()),
             'force': force,
+            'skip_dry_run': repo_data.get('skip_dry_run', False),
         }
         remote_names = set()
         if 'remotes' in repo_data:
