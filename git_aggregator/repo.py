@@ -39,7 +39,7 @@ class Repo(object):
 
     def __init__(self, cwd, remotes, merges, target,
                  shell_command_after=None, fetch_all=False, defaults=None,
-                 force=False, skip_dry_run=False):
+                 force=False, skip_dry_run=False, apply_patch=False):
         """Initialize a git repository aggregator
 
         :param cwd: path to the directory where to initialize the repository
@@ -71,6 +71,7 @@ class Repo(object):
         self.defaults = defaults or dict()
         self.force = force
         self.skip_dry_run = skip_dry_run
+        self.apply_patch = apply_patch
 
     @property
     def git_version(self):
@@ -200,7 +201,7 @@ class Repo(object):
             self._set_remote(**r)
         self.fetch()
         merges = self.merges
-        if not is_new or cloned:
+        if (not is_new or cloned) and not self.apply_patch:
             # reset to the first merge
             origin = merges[0]
             merges = merges[1:]
