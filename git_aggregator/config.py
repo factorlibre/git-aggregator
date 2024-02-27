@@ -35,6 +35,7 @@ def get_repos(config, force=False, skip_merge_check=False):
             'force': force,
             'skip_dry_run': repo_data.get('skip_dry_run', False),
             'apply_patch': repo_data.get('apply_patch', False),
+            'skip_repo_init': repo_data.get('skip_repo_init', False),
         }
         remote_names = set()
         if 'remotes' in repo_data:

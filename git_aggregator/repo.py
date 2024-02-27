@@ -39,7 +39,8 @@ class Repo(object):
 
     def __init__(self, cwd, remotes, merges, target,
                  shell_command_after=None, fetch_all=False, defaults=None,
-                 force=False, skip_dry_run=False, apply_patch=False):
+                 force=False, skip_dry_run=False, apply_patch=False,
+                 skip_repo_init=False):
         """Initialize a git repository aggregator
 
         :param cwd: path to the directory where to initialize the repository
@@ -58,6 +59,13 @@ class Repo(object):
             Collection of default parameters to be passed to git.
         :param bool force:
             When ``False``, it will stop if repo is dirty.
+        :param bool skip_dry_run:
+            When ``True``, it will skip dry-run for this repo.
+        :param bool apply_patch:
+            When ``True``, it will apply the merge requests as patches
+        :param bool skip_repo_init:
+            When ``True``, it will not clone the repository if it does not
+            exist.
         """
         self.cwd = cwd
         self.remotes = remotes
@@ -72,6 +80,7 @@ class Repo(object):
         self.force = force
         self.skip_dry_run = skip_dry_run
         self.apply_patch = apply_patch
+        self.skip_repo_init = skip_repo_init
 
     @property
     def git_version(self):
@@ -194,6 +203,11 @@ class Repo(object):
 
         is_new = not os.path.exists(target_dir)
         if is_new:
+            if self.skip_repo_init:
+                logger.info(
+                    'Skipping repository initialization for %s', repo_dir
+                )
+                return
             cloned = self.init_repository(target_dir)
 
         self._switch_to_branch(self.target['branch'])
