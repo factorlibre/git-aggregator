@@ -1,19 +1,17 @@
-# -*- coding: utf-8 -*-
 # © 2015 ACSONE SA/NV
 # License AGPLv3 (http://www.gnu.org/licenses/agpl-3.0-standalone.html)
 # Parts of the code comes from ANYBOX
 # https://github.com/anybox/anybox.recipe.odoo
-from __future__ import unicode_literals
-import os
 import logging
+import os
 import re
 import shutil
 import subprocess
 
 import requests
 
-from .exception import DirtyException, GitAggregatorException
 from ._compat import console_to_str
+from .exception import DirtyException, GitAggregatorException
 
 FETCH_DEFAULTS = ("depth", "shallow-since", "shallow-exclude")
 logger = logging.getLogger(__name__)
@@ -33,7 +31,7 @@ def ishex(s):
     return True
 
 
-class Repo(object):
+class Repo:
 
     _git_version = None
 
@@ -201,7 +199,7 @@ class Repo(object):
             target_dir = "%s-%s" % (target_dir, "dry-run")
             self.cwd = target_dir
 
-        is_new = not os.path.exists(target_dir)
+        is_new = not os.path.exists(target_dir) or os.listdir(target_dir) == []
         if is_new:
             if self.skip_repo_init:
                 logger.info(
@@ -397,8 +395,8 @@ class Repo(object):
         else:
             logger.info('Updating remote %s <%s> -> <%s>',
                         name, exising_url, url)
-            self.log_call(['git', 'remote', 'rm', name], cwd=self.cwd)
-            self.log_call(['git', 'remote', 'add', name, url], cwd=self.cwd)
+            self.log_call(
+                ['git', 'remote', 'set-url', name, url], cwd=self.cwd)
 
     def _github_api_get(self, path):
         url = 'https://api.github.com' + path
@@ -408,7 +406,7 @@ class Repo(object):
             headers = {'Authorization': 'token %s' % token}
         return requests.get(url, headers=headers)
 
-    def collect_prs_info(self):
+    def collect_prs_info(self, merges=None):
         """Collect all pending merge PRs info.
 
         :returns: mapping of PRs by state
@@ -420,7 +418,7 @@ class Repo(object):
             '^(refs/)?pull/(?P<pr>[0-9]+)/head$')
         remotes = {r['name']: r['url'] for r in self.remotes}
         all_prs = {}
-        for merge in self.merges:
+        for merge in (merges or self.merges):
             remote = merge['remote']
             ref = merge['ref']
             repo_url = remotes[remote]
