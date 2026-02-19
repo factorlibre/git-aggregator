@@ -35,6 +35,8 @@ def get_repos(config, force=False, skip_merge_check=False):
             'apply_patch': repo_data.get('apply_patch', False),
             'skip_repo_init': repo_data.get('skip_repo_init', False),
         }
+        if 'retry' in repo_data:
+            repo_dict['retry'] = repo_data['retry']
         remote_names = set()
         if 'remotes' in repo_data:
             repo_dict['remotes'] = []
@@ -55,7 +57,10 @@ def get_repos(config, force=False, skip_merge_check=False):
                     '%s: You should at least define one remote.' % directory)
         else:
             try:
-                tmp_repo = Repo(repo_dict['cwd'], [], [], None)
+                tmp_repo = Repo(
+                    repo_dict['cwd'], [], [], None,
+                    retry={"max_retries": 0},
+                )
                 remotes = tmp_repo._get_remotes()
                 repo_dict['remotes'] = []
                 for remote_name, url in remotes.items():
@@ -71,7 +76,10 @@ def get_repos(config, force=False, skip_merge_check=False):
             merge_data = repo_data.get('merges') or []
             tmp_repo = None
             if not skip_merge_check:
-                tmp_repo = Repo(repo_dict['cwd'], [], [], None)
+                tmp_repo = Repo(
+                    repo_dict['cwd'], [], [], None,
+                    retry={"max_retries": 0},
+                )
                 if os.path.exists(tmp_repo.cwd):
                     # Set remotes
                     for remote in repo_dict['remotes']:

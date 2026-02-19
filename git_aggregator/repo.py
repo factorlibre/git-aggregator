@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 
 import requests
 
@@ -14,7 +15,17 @@ from ._compat import console_to_str
 from .exception import DirtyException, GitAggregatorException
 
 FETCH_DEFAULTS = ("depth", "shallow-since", "shallow-exclude")
+NETWORK_GIT_COMMANDS = ("fetch", "pull", "push", "ls-remote", "clone")
+DEFAULT_RETRY = {"max_retries": 3, "delay": 5, "backoff_factor": 2}
 logger = logging.getLogger(__name__)
+
+
+def _is_network_command(cmd):
+    """Detect if a git command is a network operation."""
+    for part in cmd:
+        if part in NETWORK_GIT_COMMANDS:
+            return True
+    return False
 
 
 def ishex(s):
@@ -38,7 +49,7 @@ class Repo:
     def __init__(self, cwd, remotes, merges, target,
                  shell_command_after=None, fetch_all=False, defaults=None,
                  force=False, skip_dry_run=False, apply_patch=False,
-                 skip_repo_init=False):
+                 skip_repo_init=False, retry=None):
         """Initialize a git repository aggregator
 
         :param cwd: path to the directory where to initialize the repository
@@ -79,6 +90,10 @@ class Repo:
         self.skip_dry_run = skip_dry_run
         self.apply_patch = apply_patch
         self.skip_repo_init = skip_repo_init
+        if retry is None:
+            self.retry = dict(DEFAULT_RETRY)
+        else:
+            self.retry = retry
 
     @property
     def git_version(self):
@@ -168,14 +183,42 @@ class Repo:
         :param meth: the calling method to use.
         """
         logger.log(log_level, "%s> call %r", self.cwd, cmd)
-        try:
-            ret = callwith(cmd, **kw)
-        except Exception:
-            logger.error("%s> error calling %r", self.cwd, cmd)
-            raise
-        if callwith == subprocess.check_output:
-            ret = console_to_str(ret)
-        return ret
+        max_retries = self.retry.get("max_retries", 0)
+        if max_retries > 0 and _is_network_command(cmd):
+            delay = self.retry.get("delay", DEFAULT_RETRY["delay"])
+            backoff_factor = self.retry.get(
+                "backoff_factor", DEFAULT_RETRY["backoff_factor"]
+            )
+            last_exception = None
+            for attempt in range(max_retries + 1):
+                try:
+                    ret = callwith(cmd, **kw)
+                    if callwith == subprocess.check_output:
+                        ret = console_to_str(ret)
+                    return ret
+                except Exception as exc:
+                    last_exception = exc
+                    if attempt < max_retries:
+                        wait = delay * backoff_factor ** attempt
+                        logger.warning(
+                            "%s> Retry %d/%d for %r in %ds...",
+                            self.cwd, attempt + 1, max_retries, cmd, wait,
+                        )
+                        time.sleep(wait)
+                    else:
+                        logger.error(
+                            "%s> error calling %r", self.cwd, cmd
+                        )
+            raise last_exception
+        else:
+            try:
+                ret = callwith(cmd, **kw)
+            except Exception:
+                logger.error("%s> error calling %r", self.cwd, cmd)
+                raise
+            if callwith == subprocess.check_output:
+                ret = console_to_str(ret)
+            return ret
 
     def _dry_run_cleanup(self, target_dir):
         if os.path.exists(target_dir):
