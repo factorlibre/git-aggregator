@@ -1,22 +1,31 @@
-# -*- coding: utf-8 -*-
 # © 2015 ACSONE SA/NV
 # License AGPLv3 (http://www.gnu.org/licenses/agpl-3.0-standalone.html)
 # Parts of the code comes from ANYBOX
 # https://github.com/anybox/anybox.recipe.odoo
-from __future__ import unicode_literals
-import os
 import logging
+import os
 import re
 import shutil
 import subprocess
+import time
 
 import requests
 
-from .exception import DirtyException, GitAggregatorException
 from ._compat import console_to_str
+from .exception import DirtyException, GitAggregatorException
 
 FETCH_DEFAULTS = ("depth", "shallow-since", "shallow-exclude")
+NETWORK_GIT_COMMANDS = ("fetch", "pull", "push", "ls-remote", "clone")
+DEFAULT_RETRY = {"max_retries": 3, "delay": 5, "backoff_factor": 2}
 logger = logging.getLogger(__name__)
+
+
+def _is_network_command(cmd):
+    """Detect if a git command is a network operation."""
+    for part in cmd:
+        if part in NETWORK_GIT_COMMANDS:
+            return True
+    return False
 
 
 def ishex(s):
@@ -33,14 +42,14 @@ def ishex(s):
     return True
 
 
-class Repo(object):
+class Repo:
 
     _git_version = None
 
     def __init__(self, cwd, remotes, merges, target,
                  shell_command_after=None, fetch_all=False, defaults=None,
                  force=False, skip_dry_run=False, apply_patch=False,
-                 skip_repo_init=False):
+                 skip_repo_init=False, retry=None):
         """Initialize a git repository aggregator
 
         :param cwd: path to the directory where to initialize the repository
@@ -81,6 +90,10 @@ class Repo(object):
         self.skip_dry_run = skip_dry_run
         self.apply_patch = apply_patch
         self.skip_repo_init = skip_repo_init
+        if retry is None:
+            self.retry = dict(DEFAULT_RETRY)
+        else:
+            self.retry = retry
 
     @property
     def git_version(self):
@@ -170,14 +183,42 @@ class Repo(object):
         :param meth: the calling method to use.
         """
         logger.log(log_level, "%s> call %r", self.cwd, cmd)
-        try:
-            ret = callwith(cmd, **kw)
-        except Exception:
-            logger.error("%s> error calling %r", self.cwd, cmd)
-            raise
-        if callwith == subprocess.check_output:
-            ret = console_to_str(ret)
-        return ret
+        max_retries = self.retry.get("max_retries", 0)
+        if max_retries > 0 and _is_network_command(cmd):
+            delay = self.retry.get("delay", DEFAULT_RETRY["delay"])
+            backoff_factor = self.retry.get(
+                "backoff_factor", DEFAULT_RETRY["backoff_factor"]
+            )
+            last_exception = None
+            for attempt in range(max_retries + 1):
+                try:
+                    ret = callwith(cmd, **kw)
+                    if callwith == subprocess.check_output:
+                        ret = console_to_str(ret)
+                    return ret
+                except Exception as exc:
+                    last_exception = exc
+                    if attempt < max_retries:
+                        wait = delay * backoff_factor ** attempt
+                        logger.warning(
+                            "%s> Retry %d/%d for %r in %ds...",
+                            self.cwd, attempt + 1, max_retries, cmd, wait,
+                        )
+                        time.sleep(wait)
+                    else:
+                        logger.error(
+                            "%s> error calling %r", self.cwd, cmd
+                        )
+            raise last_exception
+        else:
+            try:
+                ret = callwith(cmd, **kw)
+            except Exception:
+                logger.error("%s> error calling %r", self.cwd, cmd)
+                raise
+            if callwith == subprocess.check_output:
+                ret = console_to_str(ret)
+            return ret
 
     def _dry_run_cleanup(self, target_dir):
         if os.path.exists(target_dir):
@@ -201,7 +242,7 @@ class Repo(object):
             target_dir = "%s-%s" % (target_dir, "dry-run")
             self.cwd = target_dir
 
-        is_new = not os.path.exists(target_dir)
+        is_new = not os.path.exists(target_dir) or os.listdir(target_dir) == []
         if is_new:
             if self.skip_repo_init:
                 logger.info(
@@ -397,8 +438,8 @@ class Repo(object):
         else:
             logger.info('Updating remote %s <%s> -> <%s>',
                         name, exising_url, url)
-            self.log_call(['git', 'remote', 'rm', name], cwd=self.cwd)
-            self.log_call(['git', 'remote', 'add', name, url], cwd=self.cwd)
+            self.log_call(
+                ['git', 'remote', 'set-url', name, url], cwd=self.cwd)
 
     def _github_api_get(self, path):
         url = 'https://api.github.com' + path
@@ -408,7 +449,7 @@ class Repo(object):
             headers = {'Authorization': 'token %s' % token}
         return requests.get(url, headers=headers)
 
-    def collect_prs_info(self):
+    def collect_prs_info(self, merges=None):
         """Collect all pending merge PRs info.
 
         :returns: mapping of PRs by state
@@ -420,7 +461,7 @@ class Repo(object):
             '^(refs/)?pull/(?P<pr>[0-9]+)/head$')
         remotes = {r['name']: r['url'] for r in self.remotes}
         all_prs = {}
-        for merge in self.merges:
+        for merge in (merges or self.merges):
             remote = merge['remote']
             ref = merge['ref']
             repo_url = remotes[remote]

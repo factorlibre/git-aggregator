@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # © 2015 ACSONE SA/NV
 # License AGPLv3 (http://www.gnu.org/licenses/agpl-3.0-standalone.html)
 # Parts of the code comes from ANYBOX
@@ -6,12 +5,14 @@
 import argparse
 import os
 import shutil
-import unittest
 import subprocess
+import unittest
+
 try:
     # Py 2
-    from urlparse import urljoin
     from urllib import pathname2url
+
+    from urlparse import urljoin
 except ImportError:
     # PY  3
     from urllib.parse import urljoin
@@ -20,11 +21,12 @@ import logging
 from tempfile import mkdtemp
 from textwrap import dedent
 
-
-from git_aggregator.utils import WorkingDirectoryKeeper,\
-    working_directory_keeper
-from git_aggregator.repo import Repo
 from git_aggregator import exception, main
+from git_aggregator.repo import Repo
+from git_aggregator.utils import (
+    WorkingDirectoryKeeper,
+    working_directory_keeper,
+)
 
 
 def git_get_last_rev(repo_dir):
@@ -65,7 +67,7 @@ class TestRepo(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         main.setup_logger(level=logging.DEBUG)
-        super(TestRepo, cls).setUpClass()
+        super().setUpClass()
 
     def setUp(self):
         """ Setup
@@ -79,7 +81,7 @@ class TestRepo(unittest.TestCase):
              commit 3
              branch b2
         """
-        super(TestRepo, self).setUp()
+        super().setUp()
         sandbox = self.sandbox = mkdtemp('test_repo')
         with working_directory_keeper:
             os.chdir(sandbox)
@@ -119,6 +121,28 @@ class TestRepo(unittest.TestCase):
             'remote': 'r1',
             'branch': 'agg1'
         }
+        repo = Repo(self.cwd, remotes, merges, target)
+        repo.aggregate()
+        last_rev = git_get_last_rev(self.cwd)
+        self.assertEqual(last_rev, self.commit_1_sha)
+
+    def test_empty_dir(self):
+        # ensure git clone in empty directory works
+        remotes = [{
+            'name': 'r1',
+            'url': self.url_remote1
+        }]
+        merges = [{
+            'remote': 'r1',
+            'ref': 'tag1'
+        }]
+        target = {
+            'remote': 'r1',
+            'branch': 'agg1'
+        }
+        # self.cwd should not exist yet
+        self.assertFalse(os.path.exists(self.cwd))
+        os.mkdir(self.cwd)
         repo = Repo(self.cwd, remotes, merges, target)
         repo.aggregate()
         last_rev = git_get_last_rev(self.cwd)
