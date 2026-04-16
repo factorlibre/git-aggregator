@@ -405,14 +405,10 @@ class Repo:
             cwd=self.cwd).splitlines()
         remotes = {}
         for line in lines:
-            name, url = line.split('\t')
-            url = url.split(' ')[0]
-            v = remotes.setdefault(name, url)
-            if v != url:
-                raise NotImplementedError(
-                    'Different urls gor push and fetch for remote %s\n'
-                    '%s != %s' % (name, url, v)
-                )
+            name, url_and_type = line.split('\t')
+            url, remote_type = url_and_type.rsplit(' ', 1)
+            if remote_type == '(fetch)':
+                remotes[name] = url
         return remotes
 
     def _set_remote(self, name, url):
