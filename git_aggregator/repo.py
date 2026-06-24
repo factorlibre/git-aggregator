@@ -405,10 +405,20 @@ class Repo:
             cwd=self.cwd).splitlines()
         remotes = {}
         for line in lines:
-            name, url_and_type = line.split('\t')
-            url, remote_type = url_and_type.rsplit(' ', 1)
-            if remote_type == '(fetch)':
-                remotes[name] = url
+            line = line.strip()
+            if not line:
+                continue
+            name, rest = line.split('\t', 1)
+            # ``rest`` looks like "<url> (fetch)" or "<url> (push)" and may
+            # carry a trailing partial-clone filter annotation, e.g.
+            # "<url> (fetch) [blob:none]". Match the type marker explicitly
+            # instead of assuming it is the last whitespace-separated token,
+            # and keep the fetch url (falling back to push so the remote is
+            # never silently dropped).
+            if ' (fetch)' in rest:
+                remotes[name] = rest.split(' (fetch)', 1)[0]
+            elif ' (push)' in rest and name not in remotes:
+                remotes[name] = rest.split(' (push)', 1)[0]
         return remotes
 
     def _set_remote(self, name, url):
