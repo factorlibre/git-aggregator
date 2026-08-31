@@ -20,9 +20,10 @@ except ImportError:
 import logging
 from tempfile import mkdtemp
 from textwrap import dedent
+from unittest import mock
 
 from git_aggregator import exception, main
-from git_aggregator.repo import Repo
+from git_aggregator.repo import DEFAULT_RETRY, Repo, compute_retry_wait
 from git_aggregator.utils import (
     WorkingDirectoryKeeper,
     working_directory_keeper,
@@ -444,3 +445,96 @@ class TestRepo(unittest.TestCase):
 
         self.assertTrue(os.path.isfile(os.path.join(repo3_dir, 'tracked')))
         self.assertTrue(os.path.isfile(os.path.join(repo3_dir, 'tracked2')))
+
+
+class TestRetry(unittest.TestCase):
+    """Test the retry mechanism of the network git commands."""
+
+    def _failing_call(self, calls, failures=None):
+        """Return a callwith that appends to `calls` and fails `failures`
+        times (always if `failures` is None)."""
+        def callwith(cmd, **kw):
+            calls.append(cmd)
+            if failures is None or len(calls) <= failures:
+                raise subprocess.CalledProcessError(128, cmd)
+            return 0
+        return callwith
+
+    def test_compute_retry_wait(self):
+        self.assertEqual(compute_retry_wait(0, 15, 2), 15)
+        self.assertEqual(compute_retry_wait(1, 15, 2), 30)
+        self.assertEqual(compute_retry_wait(2, 15, 2), 60)
+        # a factor of 1 gives a constant delay
+        self.assertEqual(compute_retry_wait(3, 15, 1), 15)
+
+    def test_compute_retry_wait_jitter(self):
+        for attempt in range(4):
+            expected = 15 * 2 ** attempt
+            for _i in range(50):
+                wait = compute_retry_wait(attempt, 15, 2, jitter=0.2)
+                self.assertGreaterEqual(wait, expected * 0.8)
+                self.assertLessEqual(wait, expected * 1.2)
+        # the jitter is random, so the waits must not all be the same
+        waits = {compute_retry_wait(0, 15, 2, jitter=0.2) for _i in range(50)}
+        self.assertGreater(len(waits), 1)
+
+    def test_defaults(self):
+        repo = Repo('/tmp/notexisting', [], [], None)
+        self.assertEqual(repo.retry, DEFAULT_RETRY)
+        # missing keys keep their default value
+        repo = Repo('/tmp/notexisting', [], [], None,
+                    retry={'max_retries': 0})
+        self.assertEqual(repo.retry['max_retries'], 0)
+        self.assertEqual(repo.retry['delay'], DEFAULT_RETRY['delay'])
+
+    def test_retry_network_command(self):
+        repo = Repo('/tmp/notexisting', [], [], None, retry={
+            'max_retries': 3, 'delay': 10, 'backoff_factor': 3, 'jitter': 0,
+        })
+        calls = []
+        with mock.patch('git_aggregator.repo.time.sleep') as sleep:
+            with self.assertRaises(subprocess.CalledProcessError):
+                repo.log_call(
+                    ['git', 'fetch', 'origin', 'refs/pull/42/head'],
+                    callwith=self._failing_call(calls))
+        # the initial call plus one per retry
+        self.assertEqual(len(calls), 4)
+        self.assertEqual(
+            [c.args[0] for c in sleep.call_args_list], [10, 30, 90])
+
+    def test_retry_network_command_success(self):
+        repo = Repo('/tmp/notexisting', [], [], None, retry={
+            'max_retries': 3, 'delay': 10,
+        })
+        calls = []
+        with mock.patch('git_aggregator.repo.time.sleep'):
+            ret = repo.log_call(
+                ['git', 'fetch', 'origin', 'refs/pull/42/head'],
+                callwith=self._failing_call(calls, failures=2))
+        self.assertEqual(ret, 0)
+        self.assertEqual(len(calls), 3)
+
+    def test_no_retry(self):
+        repo = Repo('/tmp/notexisting', [], [], None,
+                    retry={'max_retries': 0})
+        calls = []
+        with mock.patch('git_aggregator.repo.time.sleep') as sleep:
+            with self.assertRaises(subprocess.CalledProcessError):
+                repo.log_call(
+                    ['git', 'fetch', 'origin', 'refs/pull/42/head'],
+                    callwith=self._failing_call(calls))
+        self.assertEqual(len(calls), 1)
+        sleep.assert_not_called()
+
+    def test_no_retry_local_command(self):
+        """Only the network commands are retried."""
+        repo = Repo('/tmp/notexisting', [], [], None,
+                    retry={'max_retries': 3, 'delay': 10})
+        calls = []
+        with mock.patch('git_aggregator.repo.time.sleep') as sleep:
+            with self.assertRaises(subprocess.CalledProcessError):
+                repo.log_call(
+                    ['git', 'checkout', '-B', 'aggregated'],
+                    callwith=self._failing_call(calls))
+        self.assertEqual(len(calls), 1)
+        sleep.assert_not_called()

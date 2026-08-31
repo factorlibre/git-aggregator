@@ -8,18 +8,20 @@ from string import Template
 import yaml
 
 from ._compat import string_types
-from .repo import Repo, ishex
+from .repo import RETRY_KEYS, Repo, ishex
 from .exception import ConfigException
 
 log = logging.getLogger(__name__)
 
 
-def get_repos(config, force=False, skip_merge_check=False):
+def get_repos(config, force=False, skip_merge_check=False, retry=None):
     """Return a :py:obj:`list` list of repos from config file.
     :param config: the repos config in :py:class:`dict` format.
     :param bool force: Force aggregate dirty repos or not.
     :param bool skip_merge_check: True to skip the merge check for non existing refs
     in remotes.
+    :param retry: optional dict of retry parameters taking precedence over
+    the `retry` section of each repo in the config file.
     :type config: dict
     :rtype: list
     """
@@ -35,8 +37,20 @@ def get_repos(config, force=False, skip_merge_check=False):
             'apply_patch': repo_data.get('apply_patch', False),
             'skip_repo_init': repo_data.get('skip_repo_init', False),
         }
-        if 'retry' in repo_data:
-            repo_dict['retry'] = repo_data['retry']
+        repo_retry = dict(repo_data.get('retry') or {})
+        unknown_keys = set(repo_retry) - set(RETRY_KEYS)
+        if unknown_keys:
+            raise ConfigException(
+                '%s: Unknown retry parameter(s) %s. Valid ones are %s.' % (
+                    directory,
+                    ', '.join(sorted(unknown_keys)),
+                    ', '.join(RETRY_KEYS),
+                )
+            )
+        # Command line parameters win over the config file ones
+        repo_retry.update(retry or {})
+        if repo_retry:
+            repo_dict['retry'] = repo_retry
         remote_names = set()
         if 'remotes' in repo_data:
             repo_dict['remotes'] = []
@@ -176,7 +190,8 @@ def get_repos(config, force=False, skip_merge_check=False):
 
 
 def load_config(
-        config, expand_env=False, env_file=None, force=False, skip_merge_check=False):
+        config, expand_env=False, env_file=None, force=False,
+        skip_merge_check=False, retry=None):
     """Return repos from a directory and fnmatch. Not recursive.
 
     :param config: paths to config file
@@ -188,6 +203,8 @@ def load_config(
     :param bool force: True to aggregate even if repo is dirty.
     :param bool skip_merge_check: True to skip the merge check for non existing refs
     in remotes.
+    :param retry: optional dict of retry parameters taking precedence over
+    the `retry` section of each repo in the config file.
     :returns: expanded config dict item
     :rtype: iter(dict)
     """
@@ -221,4 +238,5 @@ def load_config(
 
     conf = yaml.load(config, Loader=yaml.SafeLoader)
 
-    return get_repos(conf or {}, force, skip_merge_check=skip_merge_check)
+    return get_repos(
+        conf or {}, force, skip_merge_check=skip_merge_check, retry=retry)

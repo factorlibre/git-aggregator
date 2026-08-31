@@ -435,3 +435,62 @@ class TestConfig(unittest.TestCase):
         config_yaml = dedent(config_yaml)
         repos = config.get_repos(self._parse_config(config_yaml))
         self.assertIs(repos[0]["fetch_all"], True)
+
+    def test_load_retry(self):
+        config_yaml = """
+/product_attribute:
+    remotes:
+        oca: https://github.com/OCA/product-attribute.git
+    merges:
+        - oca 8.0
+    target: oca aggregated_branch
+    retry:
+        max_retries: 2
+        delay: 30
+"""
+        repos = config.get_repos(
+            self._parse_config(config_yaml), skip_merge_check=True)
+        self.assertEqual(
+            repos[0]['retry'], {'max_retries': 2, 'delay': 30})
+        # command line parameters win over the ones of the config file
+        repos = config.get_repos(
+            self._parse_config(config_yaml), skip_merge_check=True,
+            retry={'delay': 60})
+        self.assertEqual(
+            repos[0]['retry'], {'max_retries': 2, 'delay': 60})
+
+    def test_load_retry_without_config(self):
+        config_yaml = """
+/product_attribute:
+    remotes:
+        oca: https://github.com/OCA/product-attribute.git
+    merges:
+        - oca 8.0
+    target: oca aggregated_branch
+"""
+        repos = config.get_repos(
+            self._parse_config(config_yaml), skip_merge_check=True)
+        self.assertNotIn('retry', repos[0])
+        repos = config.get_repos(
+            self._parse_config(config_yaml), skip_merge_check=True,
+            retry={'max_retries': 0})
+        self.assertEqual(repos[0]['retry'], {'max_retries': 0})
+
+    def test_load_retry_exception(self):
+        config_yaml = """
+/product_attribute:
+    remotes:
+        oca: https://github.com/OCA/product-attribute.git
+    merges:
+        - oca 8.0
+    target: oca aggregated_branch
+    retry:
+        max_retry: 2
+"""
+        with self.assertRaises(ConfigException) as ex:
+            config.get_repos(
+                self._parse_config(config_yaml), skip_merge_check=True)
+        self.assertEqual(
+            ex.exception.args[0],
+            '/product_attribute: Unknown retry parameter(s) max_retry. '
+            'Valid ones are max_retries, delay, backoff_factor, jitter.')
