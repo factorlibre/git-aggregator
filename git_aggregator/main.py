@@ -22,7 +22,7 @@ import colorama
 
 from .config import load_config
 from .log import DebugLogFormatter, LogFormatter
-from .repo import Repo
+from .repo import DEFAULT_RETRY, RETRY_KEYS, Repo
 from .utils import ThreadNameKeeper
 
 logger = logging.getLogger(__name__)
@@ -133,6 +133,47 @@ def get_parser():
     )
 
     main_parser.add_argument(
+        '--retry-max',
+        dest='retry_max_retries',
+        default=None,
+        type=int,
+        help='Number of times a failing network git command (fetch, pull, '
+             'push, ls-remote, clone) is retried. Set `0` to disable '
+             'retries. Overrides the `retry` section of the configuration '
+             'file (default: %d).' % DEFAULT_RETRY['max_retries'],
+    )
+
+    main_parser.add_argument(
+        '--retry-delay',
+        dest='retry_delay',
+        default=None,
+        type=float,
+        help='Seconds to wait before the first retry (default: %d). '
+             'Each subsequent retry waits `--retry-backoff-factor` times '
+             'longer.' % DEFAULT_RETRY['delay'],
+    )
+
+    main_parser.add_argument(
+        '--retry-backoff-factor',
+        dest='retry_backoff_factor',
+        default=None,
+        type=float,
+        help='Multiplier applied to the delay of each retry (default: %d). '
+             'Set `1` for a constant delay.' % DEFAULT_RETRY['backoff_factor'],
+    )
+
+    main_parser.add_argument(
+        '--retry-jitter',
+        dest='retry_jitter',
+        default=None,
+        type=float,
+        help='Randomize each retry delay by +/- this ratio, between 0 and 1 '
+             '(default: %s). This avoids concurrent aggregations retrying at '
+             'the same time against a rate limiting remote. Set `0` to '
+             'disable.' % DEFAULT_RETRY['jitter'],
+    )
+
+    main_parser.add_argument(
         '--no-color',
         dest='no_color',
         default=False,
@@ -182,6 +223,15 @@ def main():
     argcomplete.autocomplete(parser, always_complete_options=False)
 
     args = parser.parse_args()
+    if args.retry_max_retries is not None and args.retry_max_retries < 0:
+        parser.error('--retry-max must be a positive number')
+    if args.retry_delay is not None and args.retry_delay < 0:
+        parser.error('--retry-delay must be a positive number')
+    if args.retry_backoff_factor is not None and args.retry_backoff_factor < 1:
+        parser.error('--retry-backoff-factor must be greater than or equal 1')
+    if args.retry_jitter is not None and not 0 <= args.retry_jitter < 1:
+        parser.error('--retry-jitter must be greater than or equal 0 '
+                     'and lower than 1')
     if args.no_color:
         colorama.init(strip=True)
     if not args.command:
@@ -197,6 +247,20 @@ def main():
         return 1
 
 
+def get_retry_overrides(args):
+    """Return the retry parameters explicitly set on the command line.
+
+    Parameters left out keep the value from the configuration file, or the
+    :data:`git_aggregator.repo.DEFAULT_RETRY` one.
+    """
+    overrides = {}
+    for key in RETRY_KEYS:
+        value = getattr(args, 'retry_%s' % key, None)
+        if value is not None:
+            overrides[key] = value
+    return overrides
+
+
 def match_dir(cwd, dirmatch=None):
     if not dirmatch:
         return True
@@ -208,7 +272,9 @@ def match_dir(cwd, dirmatch=None):
 def load_aggregate(args):
     """Load YAML and JSON configs and begin creating / updating , aggregating
     and pushing the repos (deprecated in favor or run())"""
-    repos = load_config(args.config, args.expand_env, args.env_file)
+    repos = load_config(
+        args.config, args.expand_env, args.env_file,
+        retry=get_retry_overrides(args))
     dirmatch = args.dirmatch
     for repo_dict in repos:
         r = Repo(**repo_dict)
@@ -253,7 +319,8 @@ def run(args):
     in args.command"""
 
     repos = load_config(
-        args.config, args.expand_env, args.env_file, args.force)
+        args.config, args.expand_env, args.env_file, args.force,
+        retry=get_retry_overrides(args))
 
     jobs = max(args.jobs, 1)
     threads = []

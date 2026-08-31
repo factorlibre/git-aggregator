@@ -206,6 +206,53 @@ A real life example: applying a patch
         shell_command_after:
             - git am "$(git format-patch -1 XXXXXX -o ../patches)"
 
+Network retries
+---------------
+
+Network git commands (``fetch``, ``pull``, ``push``, ``ls-remote`` and
+``clone``) are retried when they fail, with an exponential backoff. This
+helps with flaky networks and, above all, with forges that rate limit us:
+GitHub answers with an HTTP 401 (which git reports as
+``could not read Username for 'https://github.com'``) when too many
+unauthenticated git operations come from the same IP address.
+
+The default is 4 retries, waiting 15 seconds before the first one and
+doubling the wait each time (15s, 30s, 60s, 120s), with a random jitter of
++/- 20% so that concurrent aggregations do not retry all at the same time
+and get rate limited together again.
+
+It can be tuned per repository:
+
+.. code-block:: yaml
+
+    ./product_attribute:
+        remotes:
+            oca: https://github.com/OCA/product-attribute.git
+        merges:
+            - oca 16.0
+        target: oca aggregated_branch_name
+        retry:
+            max_retries: 6
+            delay: 30
+            backoff_factor: 2
+            jitter: 0.2
+
+Set ``max_retries`` to ``0`` to disable the retries, and ``backoff_factor``
+to ``1`` for a constant delay. Note that the merge check done while loading
+the configuration file is never retried, to avoid a very long startup when
+the remote is unreachable.
+
+The same parameters are available on the command line, where they take
+precedence over the configuration file, which is handy in a CI environment:
+
+.. code-block:: bash
+
+    $ gitaggregate -c repos.yaml --retry-max 6 --retry-delay 30
+
+.. code-block:: bash
+
+    $ gitaggregate -c repos.yaml --retry-max 0
+
 Command line Usage
 ==================
 

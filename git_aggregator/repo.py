@@ -4,6 +4,7 @@
 # https://github.com/anybox/anybox.recipe.odoo
 import logging
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -16,7 +17,13 @@ from .exception import DirtyException, GitAggregatorException
 
 FETCH_DEFAULTS = ("depth", "shallow-since", "shallow-exclude")
 NETWORK_GIT_COMMANDS = ("fetch", "pull", "push", "ls-remote", "clone")
-DEFAULT_RETRY = {"max_retries": 3, "delay": 5, "backoff_factor": 2}
+DEFAULT_RETRY = {
+    "max_retries": 4,
+    "delay": 15,
+    "backoff_factor": 2,
+    "jitter": 0.2,
+}
+RETRY_KEYS = tuple(DEFAULT_RETRY)
 logger = logging.getLogger(__name__)
 
 
@@ -26,6 +33,25 @@ def _is_network_command(cmd):
         if part in NETWORK_GIT_COMMANDS:
             return True
     return False
+
+
+def compute_retry_wait(attempt, delay, backoff_factor, jitter=0):
+    """Return how many seconds to wait before the given retry attempt.
+
+    Exponential backoff, with an optional random jitter of +/- ``jitter``
+    (a ratio of the computed wait). The jitter keeps concurrent
+    aggregations from retrying in lockstep against a remote that is rate
+    limiting us, which would only get them limited again together.
+
+    >>> compute_retry_wait(0, 15, 2)
+    15
+    >>> compute_retry_wait(2, 15, 2)
+    60
+    """
+    wait = delay * backoff_factor ** attempt
+    if jitter:
+        wait += wait * random.uniform(-jitter, jitter)
+    return max(wait, 0)
 
 
 def ishex(s):
@@ -75,6 +101,11 @@ class Repo:
         :param bool skip_repo_init:
             When ``True``, it will not clone the repository if it does not
             exist.
+        :param retry:
+            Optional dict overriding :data:`DEFAULT_RETRY` for the network
+            git commands, with the keys ``max_retries``, ``delay``,
+            ``backoff_factor`` and ``jitter``. Missing keys keep their
+            default value.
         """
         self.cwd = cwd
         self.remotes = remotes
@@ -90,10 +121,9 @@ class Repo:
         self.skip_dry_run = skip_dry_run
         self.apply_patch = apply_patch
         self.skip_repo_init = skip_repo_init
-        if retry is None:
-            self.retry = dict(DEFAULT_RETRY)
-        else:
-            self.retry = retry
+        self.retry = dict(DEFAULT_RETRY)
+        if retry:
+            self.retry.update(retry)
 
     @property
     def git_version(self):
@@ -189,6 +219,7 @@ class Repo:
             backoff_factor = self.retry.get(
                 "backoff_factor", DEFAULT_RETRY["backoff_factor"]
             )
+            jitter = self.retry.get("jitter", DEFAULT_RETRY["jitter"])
             last_exception = None
             for attempt in range(max_retries + 1):
                 try:
@@ -199,9 +230,11 @@ class Repo:
                 except Exception as exc:
                     last_exception = exc
                     if attempt < max_retries:
-                        wait = delay * backoff_factor ** attempt
+                        wait = compute_retry_wait(
+                            attempt, delay, backoff_factor, jitter
+                        )
                         logger.warning(
-                            "%s> Retry %d/%d for %r in %ds...",
+                            "%s> Retry %d/%d for %r in %.1fs...",
                             self.cwd, attempt + 1, max_retries, cmd, wait,
                         )
                         time.sleep(wait)
